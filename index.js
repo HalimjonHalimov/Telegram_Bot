@@ -2,6 +2,7 @@ import TelegramBot from "node-telegram-bot-api";
 import dotenv from "dotenv";
 import fs from "fs";
 import XLSX from "xlsx";
+import express from "express"; // <-- express import
 
 dotenv.config();
 
@@ -33,7 +34,8 @@ try {
   const buffer = fs.readFileSync(filePath);
   const workbook = XLSX.read(buffer, { type: "buffer" });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+  rows = XLSX.utils.sheet_to_json(sheet, { defval: "" })
+    .filter(row => Object.values(row).some(v => String(v).trim() !== ""));
   console.log(`✅ Excel fayl o‘qildi. ${rows.length} ta yozuv topildi.`);
 } catch (err) {
   console.error("❌ Excel faylni o‘qishda xato:", err);
@@ -46,7 +48,7 @@ function isAdmin(chatId) {
   return String(chatId) === String(ADMIN_CHAT_ID);
 }
 
-// === Summani chiroyli formatlash ===
+// Summani chiroyli formatlash
 function formatSumma(sum) {
   if (!sum) return "";
   const num = parseFloat(String(sum).replace(/[^0-9.,]/g, "").replace(",", "."));
@@ -54,7 +56,7 @@ function formatSumma(sum) {
   return num.toLocaleString("ru-RU");
 }
 
-// === Xabar yuborish funksiyasi ===
+// Xabar yuborish
 async function sendCurrent(chatId) {
   const total = rows.length;
   const debtor = rows[currentIndex];
@@ -66,8 +68,6 @@ async function sendCurrent(chatId) {
 
   const text1 = `Фуқаро ${fullName}.
 СИЗ томонингиздан "Uzum Nasiya" платформаси орқали электрон расмийлаштирилган шартнома бўйича ${summa} сўм миқдорида ${kun} кунлик муддати ўтган қарздорлигингиз мавжуд.
-Қарздорлик суммасини мажбурий ундирув тартибда ундирув ишлари амалга оширилади.
-Жумладан, МИБ томонидан ойлик иш ҳақига қаратилади, руйхатда турган уй-жойингиздаги мол-мулк хатланади ҳамда ЙҲҲБ (ГАИ) томонидан шахсий автомашинангиз жарима майдончасига жойлаштирилади, шунингдек Ўзбекистон Республикасидан чиқиш ҳуқуқингиз чекланиши ҳақида огоҳлантирамиз.
 Маълумот учун +${MY_PHONE} рақамига қўнғироқ қилиш тавсия этилади.
 ЗУДЛИК БИЛАН ҚАРЗДОРЛИКНИ ТЎЛАНГ!`;
 
@@ -79,7 +79,7 @@ async function sendCurrent(chatId) {
   await bot.sendMessage(chatId, text3);
 }
 
-// === Next/Prev funksiyalari ===
+// Next/Prev
 function sendNextCircular(chatId) {
   const total = rows.length;
   currentIndex = (currentIndex + 1) % total;
@@ -92,19 +92,15 @@ function sendPrevCircular(chatId) {
   sendCurrent(chatId);
 }
 
-// === /start ===
+// /start, /next, /prev handlers
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
   if (!isAdmin(chatId)) return bot.sendMessage(chatId, "❌ Siz admin emassiz.");
 
   currentIndex = 0;
-  bot.sendMessage(
-    chatId,
-    `✅ Bot ishga tushdi. ${rows.length} ta yozuv tayyor.\nOldinga: /next\nOrqaga: /prev\nIstalgan raqamni yozing (masalan: 22)`
-  );
+  bot.sendMessage(chatId, `✅ Bot ishga tushdi. ${rows.length} ta yozuv tayyor.\nOldinga: /next\nOrqaga: /prev\nIstalgan raqamni yozing (masalan: 22)`);
 });
 
-// === /next va /prev ===
 bot.onText(/\/next/, (msg) => {
   const chatId = msg.chat.id;
   if (!isAdmin(chatId)) return bot.sendMessage(chatId, "❌ Siz admin emassiz.");
@@ -117,14 +113,13 @@ bot.onText(/\/prev/, (msg) => {
   sendPrevCircular(chatId);
 });
 
-// === Raqam yuborilganda ===
+// Raqam yozilganda
 bot.on("message", (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text?.trim();
 
   if (!isAdmin(chatId)) return;
 
-  // faqat raqam yozilganda
   if (/^\d+$/.test(text)) {
     const num = parseInt(text, 10);
     if (num >= 1 && num <= rows.length) {
@@ -136,15 +131,16 @@ bot.on("message", (msg) => {
   }
 });
 
-console.log("✅ Bot ishga tushdi.");
+console.log("✅ Telegram bot ishga tushdi.");
 
-import express from "express";
-
+/* ============================
+   EXPRESS SERVER (Port binding for Render)
+   ============================ */
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.get("/", (req, res) => {
-  res.send("✅ Telegram bot is running on Render!");
+  res.send("✅ Telegram bot is running.");
 });
 
 app.listen(PORT, () => {
