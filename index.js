@@ -43,7 +43,7 @@ try {
 const USERS = [
   { telegramId: "7192862445", sheetName: "7192862445", phone: "998973040660" }, // User 1
   { telegramId: "761360760", sheetName: "761360760", phone: "998974861757" },   // User 2
-  { telegramId: "8187159301", sheetName: "8187159301", phone: "9989958900676" },   // User 3
+  { telegramId: "8187159301", sheetName: "8187159301", phone: "998958900676" },   // User 3
   // { telegramId: "1479835681", sheetName: "1479835681", phone: "998958900676" },   // User 3
 
 ];
