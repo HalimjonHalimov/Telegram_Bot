@@ -8,6 +8,8 @@ dotenv.config();
 
 const TOKEN = process.env.BOT_TOKEN;
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID;
+const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID;
+const MY_PHONE = process.env.MY_PHONE || "998973040660";
 
 if (!TOKEN) {
   console.error("❌ BOT_TOKEN .env faylida yo‘q");
@@ -27,7 +29,7 @@ if (!fs.existsSync(filePath)) {
   process.exit(1);
 }
 
-// === Exceldagi barcha sheetlarni o‘qish ===
+// === Excel o‘qish ===
 let workbook;
 try {
   const buffer = fs.readFileSync(filePath);
@@ -38,21 +40,36 @@ try {
   process.exit(1);
 }
 
-// === USERLAR RO‘YXATI ===
-// Har bir foydalanuvchi uchun: TelegramID, Excel sheet nomi, telefon raqami
+// === USERLAR ===
 const USERS = [
-  { telegramId: "7192862445", sheetName: "7192862445", phone: "998973040660" }, // User 1
-  { telegramId: "761360760", sheetName: "761360760", phone: "998974861757" },   // User 2
-  { telegramId: "8187159301", sheetName: "8187159301", phone: "998958900676" },   // User 3
-  // { telegramId: "1479835681", sheetName: "1479835681", phone: "998958900676" },   // User 3
-
+  { telegramId: "7192862445", sheetName: "7192862445", phone: "998973040660", count: 0 },
+  { telegramId: "761360760", sheetName: "761360760", phone: "998974861757", count: 0 },
+  { telegramId: "8187159301", sheetName: "8187159301", phone: "998958900676", count: 0 },
+  { telegramId: "1479835681", sheetName: "1479835681", phone: "998987740784", count: 0 },
+  { telegramId: "5120511173", sheetName: "5120511173", phone: "998974886677", count: 0 },
+  { telegramId: "6742042771", sheetName: "6742042771", phone: "998971820077", count: 0 },
+  // { telegramId: "1479835681", sheetName: "1479835681", phone: "998919800997", count: 0 },
 ];
+
+// === DISABLED_USERS ===
+const rawDisabled = process.env.DISABLED_USERS || "";
+const DISABLED_SET = new Set(
+  rawDisabled.split(",").map(s => s.trim()).filter(Boolean)
+);
+for (const u of USERS) {
+  u.enabled = !DISABLED_SET.has(String(u.telegramId));
+}
 
 function findUser(chatId) {
   return USERS.find(u => String(u.telegramId) === String(chatId));
 }
 
-// === Summani formatlash ===
+function isAllowed(chatId) {
+  if (String(chatId) === String(ADMIN_CHAT_ID)) return true;
+  const u = findUser(chatId);
+  return u && u.enabled;
+}
+
 function formatSumma(sum) {
   if (!sum) return "";
   const num = parseFloat(String(sum).replace(/[^0-9.,]/g, "").replace(",", "."));
@@ -60,16 +77,81 @@ function formatSumma(sum) {
   return num.toLocaleString("ru-RU");
 }
 
-// === User uchun malumot yuborish ===
-async function sendCurrent(chatId, user, index) {
+// === Xabar yuborish va 60 sekdan keyin o‘chirish ===
+async function sendAndDelete(chatId, text) {
+  try {
+    const sent = await bot.sendMessage(chatId, text);
+    setTimeout(async () => {
+      try {
+        await bot.deleteMessage(chatId, sent.message_id);
+      } catch {}
+    }, 60000);
+  } catch (err) {
+    console.log("⚠️ Yuborishda xato:", err.message);
+  }
+}
+
+// === LOG funksiyasi ===
+
+// Universal mask funksiyasi — faqat oxirgi 4 ta belgini ko‘rsatadi
+function maskString(value) {
+  if (!value) return "";
+  const str = String(value);
+  if (str.length <= 4) return str; // Juda qisqa bo‘lsa, mask qilinmaydi
+  const visible = str.slice(-4);
+  const hidden = "*".repeat(str.length - 4);
+  return hidden + visible;
+}
+function maskName(fullName) {
+  if (!fullName) return "";
+  const parts = fullName.trim().split(/\s+/);
+  const lastName = parts[0] || "";
+  const firstName = parts[1] || "";
+  const maskedFirst =
+    firstName.length > 1
+      ? firstName[0] + "*".repeat(firstName.length - 1)
+      : firstName;
+  return `${lastName} ${maskedFirst}`;
+}
+
+
+
+async function logAction(user, action, debtorName) {
+  
+  if (!LOG_CHANNEL_ID) return;
+  user.count++;
+  const now = new Date().toLocaleString("uz-UZ", { timeZone: "Asia/Tashkent" });
+
+    // Ismni masklash
+    const maskedDebtor = maskName(debtorName);
+
+  const logText = `
+🧾 [User Activity Log]
+
+👤 User ID: ${maskString(user.telegramId)}  
+📱 Phone: ${maskString(user.phone)}
+📄 Sheet: ${maskString(user.sheetName)}  
+🕒 Time: ${now}  
+💬 Action: foydalanuvchi “${action}” tugmasini bosdi  
+📊 Command Count: ${user.count}  
+📋 Result: Qarzdor — "${maskedDebtor}"
+  `;
+  try {
+    await bot.sendMessage(LOG_CHANNEL_ID, logText.trim());
+  } catch (err) {
+    console.log("⚠️ Log kanalga yozishda xato:", err.message);
+  }
+}
+
+// === User uchun ma'lumot yuborish ===
+async function sendCurrent(chatId, user, index, action = "unknown") {
   const sheet = workbook.Sheets[user.sheetName];
-  if (!sheet) return bot.sendMessage(chatId, `❌ Sizga tegishli ma’lumotlar topilmadi.`);
+  if (!sheet) return sendAndDelete(chatId, `❌ Sizga tegishli ma’lumotlar topilmadi.`);
 
   const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
   const total = rows.length;
   const debtor = rows[index];
-
-  if (!debtor) return bot.sendMessage(chatId, "⚠️ Ma’lumotlar tugadi.");
+  if (!debtor) return sendAndDelete(chatId, "⚠️ Ma’lumotlar tugadi.");
 
   const fullName = debtor["Имя Фамилия"] || "";
   const tel = debtor["Телефон"] || "";
@@ -86,62 +168,62 @@ async function sendCurrent(chatId, user, index) {
   const text2 = `📱 Фойдаланувчи рақами: +${tel}`;
   const text3 = `➡️ ${index + 1}/${total} — /next yoki /prev, yoki raqam yozing (masalan: 10)`;
 
-  await bot.sendMessage(chatId, text1);
-  await bot.sendMessage(chatId, text2);
-  await bot.sendMessage(chatId, text3);
+  await sendAndDelete(chatId, text1);
+  await sendAndDelete(chatId, text2);
+  await sendAndDelete(chatId, text3);
+
+  // 🔥 log yozish
+  await logAction(user, action, fullName);
 }
 
-// === Har bir user uchun index saqlaymiz ===
-const userIndexes = {}; // { telegramId: index }
+// === User indekslari ===
+const userIndexes = {};
 
 // === /start ===
 bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
-  const user = findUser(chatId);
-// console.log(chatId);
+  console.log(chatId);
+  
+  if (!isAllowed(chatId)) return sendAndDelete(chatId, "❌ Sizga ruxsat yo‘q.");
 
-  if (!user) {
-    return bot.sendMessage(chatId, "❌ Siz bu botdan foydalanish huquqiga ega emassiz.");
-  }
+  const user = findUser(chatId);
+  if (!user) return sendAndDelete(chatId, "❌ Sizga tegishli user topilmadi.");
 
   userIndexes[chatId] = 0;
   const sheet = workbook.Sheets[user.sheetName];
   const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
 
-  await bot.sendMessage(chatId, `✅ ${rows.length} ta yozuv topildi. /next yoki /prev bilan yurishingiz mumkin.`);
-  sendCurrent(chatId, user, userIndexes[chatId]);
+  await sendAndDelete(chatId, `✅ ${rows.length} ta yozuv topildi. /next yoki /prev bilan yurishingiz mumkin.`);
+  sendCurrent(chatId, user, userIndexes[chatId], "start");
 });
 
 // === /next ===
 bot.onText(/\/next/, (msg) => {
   const chatId = msg.chat.id;
+  if (!isAllowed(chatId)) return sendAndDelete(chatId, "❌ Sizga ruxsat yo‘q.");
   const user = findUser(chatId);
-  if (!user) return bot.sendMessage(chatId, "❌ Sizga ruxsat yo‘q.");
-
   const sheet = workbook.Sheets[user.sheetName];
   const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
-
-  userIndexes[chatId] = (userIndexes[chatId] + 1) % rows.length;
-  sendCurrent(chatId, user, userIndexes[chatId]);
+  userIndexes[chatId] = ((userIndexes[chatId] || 0) + 1) % rows.length;
+  sendCurrent(chatId, user, userIndexes[chatId], "next");
 });
 
 // === /prev ===
 bot.onText(/\/prev/, (msg) => {
   const chatId = msg.chat.id;
+  if (!isAllowed(chatId)) return sendAndDelete(chatId, "❌ Sizga ruxsat yo‘q.");
   const user = findUser(chatId);
-  if (!user) return bot.sendMessage(chatId, "❌ Sizga ruxsat yo‘q.");
-
   const sheet = workbook.Sheets[user.sheetName];
   const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
-
-  userIndexes[chatId] = (userIndexes[chatId] - 1 + rows.length) % rows.length;
-  sendCurrent(chatId, user, userIndexes[chatId]);
+  userIndexes[chatId] = ((userIndexes[chatId] || 0) - 1 + rows.length) % rows.length;
+  sendCurrent(chatId, user, userIndexes[chatId], "prev");
 });
 
 // === Raqam yuborilganda ===
 bot.on("message", (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text?.trim();
+  if (!isAllowed(chatId)) return;
   const user = findUser(chatId);
   if (!user) return;
 
@@ -149,14 +231,32 @@ bot.on("message", (msg) => {
     const num = parseInt(text, 10);
     const sheet = workbook.Sheets[user.sheetName];
     const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
-
     if (num >= 1 && num <= rows.length) {
       userIndexes[chatId] = num - 1;
-      sendCurrent(chatId, user, userIndexes[chatId]);
+      sendCurrent(chatId, user, userIndexes[chatId], `raqam: ${num}`);
     } else {
-      bot.sendMessage(chatId, `❌ Noto‘g‘ri raqam. 1 dan ${rows.length} gacha bo‘lishi kerak.`);
+      sendAndDelete(chatId, `❌ Noto‘g‘ri raqam. 1 dan ${rows.length} gacha bo‘lishi kerak.`);
     }
   }
+});
+
+// === Admin buyruqlar ===
+bot.onText(/\/disable (.+)/, (msg, match) => {
+  const chatId = String(msg.chat.id);
+  if (chatId !== String(ADMIN_CHAT_ID)) return sendAndDelete(chatId, "❌ Siz admin emassiz.");
+  const target = String(match[1]).trim();
+  DISABLED_SET.add(target);
+  for (const u of USERS) if (String(u.telegramId) === target) u.enabled = false;
+  sendAndDelete(chatId, `✅ ${target} endi disable qilindi.`);
+});
+
+bot.onText(/\/enable (.+)/, (msg, match) => {
+  const chatId = String(msg.chat.id);
+  if (chatId !== String(ADMIN_CHAT_ID)) return sendAndDelete(chatId, "❌ Siz admin emassiz.");
+  const target = String(match[1]).trim();
+  DISABLED_SET.delete(target);
+  for (const u of USERS) if (String(u.telegramId) === target) u.enabled = true;
+  sendAndDelete(chatId, `✅ ${target} endi enable qilindi.`);
 });
 
 console.log("✅ Bot ishga tushdi.");
