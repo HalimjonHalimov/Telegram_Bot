@@ -45,10 +45,10 @@ const USERS = [
   { telegramId: "7192862445", sheetName: "7192862445", phone: "998973040660", count: 0 },
   { telegramId: "761360760", sheetName: "761360760", phone: "998974861757", count: 0 },
   { telegramId: "8187159301", sheetName: "8187159301", phone: "998958900676", count: 0 },
-  { telegramId: "1479835681", sheetName: "1479835681", phone: "998987740784", count: 0 },
   { telegramId: "5120511173", sheetName: "5120511173", phone: "998974886677", count: 0 },
   { telegramId: "6742042771", sheetName: "6742042771", phone: "998971820077", count: 0 },
-  // { telegramId: "1479835681", sheetName: "1479835681", phone: "998919800997", count: 0 },
+  { telegramId: "6187229844", sheetName: "6187229844", phone: "998919800997", count: 0 },
+  // { telegramId: "1479835681", sheetName: "1479835681", phone: "998987740784", count: 0 },
 ];
 
 // === DISABLED_USERS ===
